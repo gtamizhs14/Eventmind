@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eventmind-worker
+  namespace: eventmind
+  labels:
+    app: eventmind-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eventmind-worker
+  template:
+    metadata:
+      labels:
+        app: eventmind-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9092"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: worker
+          image: <ECR_WORKER_URL>
+          envFrom:
+            - configMapRef:
+                name: eventmind-config
+            - secretRef:
+                name: eventmind-secrets
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          # Worker doesn't expose HTTP, but exposes metrics
+          ports:
+            - containerPort: 9092
+              name: metrics

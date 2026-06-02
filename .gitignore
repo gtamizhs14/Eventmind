@@ -1,0 +1,47 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build artifacts
+*.test
+*.out
+
+# Environment
+.env
+.env.local
+*.tfvars
+!*.tfvars.example
+
+# Go workspace
+go.work
+go.work.sum
+
+# Vendor
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Terraform state
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+
+# Generated gqlgen code (regenerate with `make gen`)
+api/graphql/generated/
+api/graphql/model/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

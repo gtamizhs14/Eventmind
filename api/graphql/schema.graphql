@@ -1,0 +1,37 @@
+type Event {
+  id:        ID!
+  type:      String!
+  payload:   String!
+  source:    String
+  timestamp: String!
+}
+
+type Decision {
+  id:          ID!
+  eventId:     String!
+  eventType:   String!
+  action:      String!
+  reasoning:   String!
+  success:     Boolean!
+  error:        String
+  durationMs:  Int!
+  processedAt: String!
+}
+
+type Query {
+  # decisions optionally filtered by eventType, paginated
+  decisions(limit: Int, offset: Int, eventType: String): [Decision!]!
+  decision(id: ID!): Decision
+
+  events(limit: Int, offset: Int): [Event!]!
+  event(id: ID!): Event
+}
+
+type Mutation {
+  ingestEvent(type: String!, payload: String!, source: String): Event!
+}
+
+type Subscription {
+  # streams new decisions as they are made by the agent
+  onDecision: Decision!
+}
