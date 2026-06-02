@@ -68,7 +68,10 @@ func New(ctx context.Context, dsn string) (*PGStore, error) {
 		pool.Close()
 		return nil, fmt.Errorf("postgres ping: %w", err)
 	}
-	if _, err := pool.Exec(ctx, schema); err != nil {
+	// advisory lock ensures only one process runs migrations at a time
+	if _, err := pool.Exec(ctx, `
+		SELECT pg_advisory_xact_lock(1234567890);
+		`+schema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("postgres migrate: %w", err)
 	}

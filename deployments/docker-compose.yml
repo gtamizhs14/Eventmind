@@ -81,6 +81,7 @@ services:
 
   api:
     image: eventmind-api:latest
+    env_file: .env
     ports:
       - "8080:8080"
       - "9091:9091"
@@ -112,6 +113,7 @@ services:
 
   worker:
     image: eventmind-worker:latest
+    env_file: .env
     ports:
       - "9092:9092"
     environment:
