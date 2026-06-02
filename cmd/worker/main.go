@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/gtamizhs14/eventmind/internal/agent"
 	"github.com/gtamizhs14/eventmind/internal/cache"
@@ -139,10 +143,23 @@ func main() {
 		return procErr
 	}
 
+	// expose worker metrics on its own port so Prometheus can scrape them separately
+	workerMetricsPort := os.Getenv("WORKER_METRICS_PORT")
+	if workerMetricsPort == "" {
+		workerMetricsPort = "9092"
+	}
+	metricsSrv := &http.Server{Addr: fmt.Sprintf(":%s", workerMetricsPort), Handler: promhttp.Handler()}
+	go func() {
+		if err := metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error().Err(err).Msg("worker metrics server error")
+		}
+	}()
+
 	log.Info().
 		Str("brokers", brokers).
 		Str("topic", topic).
 		Str("llm", ag.ProviderName()).
+		Str("metrics_port", workerMetricsPort).
 		Msg("worker started")
 
 	errCh := make(chan error, 2)

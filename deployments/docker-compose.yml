@@ -112,7 +112,10 @@ services:
 
   worker:
     image: eventmind-worker:latest
+    ports:
+      - "9092:9092"
     environment:
+      WORKER_METRICS_PORT: "9092"
       LOG_LEVEL: debug
       LLM_PROVIDER: groq
       LLM_API_KEY: ${LLM_API_KEY}
