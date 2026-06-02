@@ -13,12 +13,18 @@ import (
 )
 
 type DLQWorker struct {
-	consumer *kafka.Consumer
-	producer *Producer
-	dlqTopic string
-	maxRetry int
-	baseMs   int
-	log      zerolog.Logger
+	consumer  *kafka.Consumer
+	producer  *Producer
+	dlqTopic  string
+	maxRetry  int
+	baseMs    int
+	log       zerolog.Logger
+	onFailed  func(ctx context.Context, raw []byte) // called when max retries exceeded
+}
+
+// OnPermanentFailure registers a callback invoked when an event exhausts all retries.
+func (w *DLQWorker) OnPermanentFailure(fn func(ctx context.Context, raw []byte)) {
+	w.onFailed = fn
 }
 
 func NewDLQWorker(brokers, groupID, dlqTopic string, maxRetry, baseMs int, log zerolog.Logger) (*DLQWorker, error) {
@@ -77,8 +83,10 @@ func (w *DLQWorker) Run(ctx context.Context, handler Handler) error {
 			w.log.Warn().
 				Str("event_key", string(msg.Key)).
 				Int("retry_count", retryCount).
-				Msg("max retries exceeded — marking permanently failed")
-			// TODO step 4: agent.MarkPermanentlyFailed(ctx, eventID)
+				Msg("max retries exceeded — permanently failed")
+			if w.onFailed != nil {
+				w.onFailed(ctx, msg.Value)
+			}
 			w.commit(msg)
 			continue
 		}

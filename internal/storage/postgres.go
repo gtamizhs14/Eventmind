@@ -32,10 +32,11 @@ CREATE TABLE IF NOT EXISTS decisions (
 	reasoning    TEXT NOT NULL,
 	llm_prompt   TEXT NOT NULL,
 	llm_response TEXT NOT NULL,
-	success      BOOLEAN NOT NULL,
-	error        TEXT,
-	duration_ms  BIGINT NOT NULL,
-	retry_count  INT NOT NULL DEFAULT 0,
+	success         BOOLEAN NOT NULL,
+	error            TEXT,
+	duration_ms      BIGINT NOT NULL,
+	llm_duration_ms  BIGINT NOT NULL DEFAULT 0,
+	retry_count      INT NOT NULL DEFAULT 0,
 	status       TEXT NOT NULL DEFAULT 'completed',
 	processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -90,12 +91,12 @@ func (s *PGStore) SaveDecision(ctx context.Context, d *agent.Decision) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO decisions
 		  (id, event_id, event_type, action, reasoning, llm_prompt, llm_response,
-		   success, error, duration_ms, retry_count, status, processed_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		   success, error, duration_ms, llm_duration_ms, retry_count, status, processed_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
 		d.ID, d.EventID, string(d.EventType), string(d.Action),
 		d.Reasoning, d.LLMPrompt, d.LLMResponse,
 		d.Success, nilIfEmpty(d.Error),
-		d.DurationMs, d.RetryCount, d.Status, d.ProcessedAt,
+		d.DurationMs, d.LLMDurationMs, d.RetryCount, d.Status, d.ProcessedAt,
 	)
 	return err
 }
@@ -160,7 +161,7 @@ func (s *PGStore) ListEvents(ctx context.Context, limit, offset int) ([]*events.
 
 const decisionSelect = `
 	SELECT id, event_id, event_type, action, reasoning, llm_prompt, llm_response,
-	       success, error, duration_ms, retry_count, status, processed_at
+	       success, error, duration_ms, llm_duration_ms, retry_count, status, processed_at
 	FROM decisions`
 
 // scanner covers both pgx.Row and pgx.Rows — both have the same Scan signature.
@@ -173,7 +174,7 @@ func scanDecision(row scanner) (*agent.Decision, error) {
 	err := row.Scan(
 		&d.ID, &d.EventID, &typ, &action, &d.Reasoning,
 		&d.LLMPrompt, &d.LLMResponse, &d.Success, &errStr,
-		&d.DurationMs, &d.RetryCount, &d.Status, &d.ProcessedAt,
+		&d.DurationMs, &d.LLMDurationMs, &d.RetryCount, &d.Status, &d.ProcessedAt,
 	)
 	if err != nil {
 		return nil, err
