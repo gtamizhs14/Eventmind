@@ -8,7 +8,7 @@ import (
 	"github.com/gtamizhs14/eventmind/pkg/llm"
 )
 
-// Decision is the full record of what the agent decided for one event.
+// Decision is the full record written to Postgres after the agent processes an event.
 type Decision struct {
 	ID          string
 	EventID     string
@@ -20,22 +20,22 @@ type Decision struct {
 	Success     bool
 	Error       string
 	DurationMs  int64
+	RetryCount  int
+	Status      string // completed | failed | permanently_failed
 	ProcessedAt time.Time
 }
 
-// Agent processes events using an LLM and executes the decided action.
-// Implemented in step 4.
 type Agent struct {
 	llm llm.Provider
-	// storage, cache, metrics wired in step 4
 }
 
 func New(provider llm.Provider) *Agent {
 	return &Agent{llm: provider}
 }
 
-// Process reasons about an event and executes the appropriate action.
-// Returns the decision record that should be persisted.
+// Process reasons about an event and returns the decision.
+// The caller (worker) handles persistence — agent is pure reasoning + action.
+// Implemented in step 4.
 func (a *Agent) Process(ctx context.Context, ev *events.Event) (*Decision, error) {
 	panic("not implemented — see step 4")
 }

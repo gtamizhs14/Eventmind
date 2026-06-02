@@ -8,6 +8,8 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/gtamizhs14/eventmind/internal/cache"
+	"github.com/gtamizhs14/eventmind/internal/storage"
 	"github.com/gtamizhs14/eventmind/pkg/logger"
 )
 
@@ -18,11 +20,25 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// TODO: wired up in steps 2, 6, 7, 8
-	_ = ctx
-	log.Info().Str("port", os.Getenv("PORT")).Msg("api server starting")
+	db, err := storage.New(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		log.Fatal().Err(err).Msg("postgres init failed")
+	}
+	defer db.Close()
+	log.Info().Msg("postgres connected")
 
-	// block until signal
+	rdb, err := cache.New(os.Getenv("REDIS_URL"))
+	if err != nil {
+		log.Fatal().Err(err).Msg("redis init failed")
+	}
+	defer rdb.Close()
+	log.Info().Msg("redis connected")
+
+	// REST + GraphQL server wired in steps 6 and 7
+	_ = db
+	_ = rdb
+
+	log.Info().Str("port", os.Getenv("PORT")).Msg("api starting — server wired in step 6")
 	<-ctx.Done()
-	log.Info().Msg("shutting down")
+	log.Info().Msg("shutdown complete")
 }
