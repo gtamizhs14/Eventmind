@@ -1,0 +1,206 @@
+package graphql
+
+// Implements the resolver methods that gqlgen stubs out after `make gen`.
+// Signatures must match what gqlgen produces from schema.graphql.
+// Won't compile until `make gen` has been run — that generates api/graphql/generated/ and api/graphql/model/.
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gtamizhs14/eventmind/api/graphql/generated"
+	"github.com/gtamizhs14/eventmind/api/graphql/model"
+	agentpkg "github.com/gtamizhs14/eventmind/internal/agent"
+	"github.com/gtamizhs14/eventmind/internal/events"
+)
+
+var _ generated.ResolverRoot = (*Resolver)(nil)
+
+func (r *Resolver) Query() generated.QueryResolver             { return &queryResolver{r} }
+func (r *Resolver) Mutation() generated.MutationResolver       { return &mutationResolver{r} }
+func (r *Resolver) Subscription() generated.SubscriptionResolver { return &subscriptionResolver{r} }
+
+// ── Query ─────────────────────────────────────────────────────────────────────
+
+type queryResolver struct{ *Resolver }
+
+func (r *queryResolver) Decisions(ctx context.Context, limit *int, offset *int, eventType *string) ([]*model.Decision, error) {
+	lim, off := 20, 0
+	if limit != nil {
+		lim = *limit
+	}
+	if offset != nil {
+		off = *offset
+	}
+	if lim > 100 {
+		lim = 100
+	}
+	et := ""
+	if eventType != nil {
+		et = *eventType
+	}
+
+	rows, err := r.db.ListDecisions(ctx, lim, off, et)
+	if err != nil {
+		return nil, fmt.Errorf("ListDecisions: %w", err)
+	}
+	out := make([]*model.Decision, len(rows))
+	for i, d := range rows {
+		out[i] = toModelDecision(d)
+	}
+	return out, nil
+}
+
+func (r *queryResolver) Decision(ctx context.Context, id string) (*model.Decision, error) {
+	if cached, err := r.cache.GetDecision(ctx, id); err == nil && cached != "" {
+		var d model.Decision
+		if err := json.Unmarshal([]byte(cached), &d); err == nil {
+			return &d, nil
+		}
+	}
+
+	d, err := r.db.GetDecision(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	md := toModelDecision(d)
+	if data, err := json.Marshal(md); err == nil {
+		_ = r.cache.CacheDecision(ctx, id, string(data))
+	}
+	return md, nil
+}
+
+func (r *queryResolver) Events(ctx context.Context, limit *int, offset *int) ([]*model.Event, error) {
+	lim, off := 20, 0
+	if limit != nil {
+		lim = *limit
+	}
+	if offset != nil {
+		off = *offset
+	}
+	rows, err := r.db.ListEvents(ctx, lim, off)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*model.Event, len(rows))
+	for i, ev := range rows {
+		out[i] = toModelEvent(ev)
+	}
+	return out, nil
+}
+
+func (r *queryResolver) Event(ctx context.Context, id string) (*model.Event, error) {
+	ev, err := r.db.GetEventByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return toModelEvent(ev), nil
+}
+
+// ── Mutation ──────────────────────────────────────────────────────────────────
+
+type mutationResolver struct{ *Resolver }
+
+func (r *mutationResolver) IngestEvent(ctx context.Context, typ string, payload string, source *string) (*model.Event, error) {
+	evType := events.Type(typ)
+	if !evType.Valid() {
+		return nil, fmt.Errorf("unknown event type %q", typ)
+	}
+	raw := json.RawMessage(payload)
+	if !json.Valid(raw) {
+		return nil, fmt.Errorf("payload is not valid JSON")
+	}
+
+	ev := &events.Event{
+		ID:        uuid.New().String(),
+		Type:      evType,
+		Payload:   raw,
+		Timestamp: time.Now().UTC(),
+	}
+	if source != nil {
+		ev.Source = *source
+	}
+
+	if err := r.db.SaveEvent(ctx, ev); err != nil {
+		return nil, fmt.Errorf("save: %w", err)
+	}
+	// non-fatal if Kafka is down — event is persisted
+	_ = r.producer.Publish(ctx, ev)
+
+	return toModelEvent(ev), nil
+}
+
+// ── Subscription ──────────────────────────────────────────────────────────────
+
+type subscriptionResolver struct{ *Resolver }
+
+func (r *subscriptionResolver) OnDecision(ctx context.Context) (<-chan *model.Decision, error) {
+	id, raw := r.subs.subscribe()
+
+	out := make(chan *model.Decision, 16)
+	go func() {
+		defer r.subs.unsubscribe(id)
+		defer close(out)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case v, ok := <-raw:
+				if !ok {
+					return
+				}
+				if d, ok := v.(*model.Decision); ok {
+					out <- d
+				}
+			}
+		}
+	}()
+	return out, nil
+}
+
+// ── conversions ───────────────────────────────────────────────────────────────
+
+func toModelDecision(d *agentpkg.Decision) *model.Decision {
+	md := &model.Decision{
+		ID:          d.ID,
+		EventId:     d.EventID,
+		EventType:   string(d.EventType),
+		Action:      string(d.Action),
+		Reasoning:   d.Reasoning,
+		Success:     d.Success,
+		DurationMs:  int(d.DurationMs),
+		ProcessedAt: d.ProcessedAt.Format(time.RFC3339),
+	}
+	if d.Error != "" {
+		e := d.Error
+		md.Error = &e
+	}
+	return md
+}
+
+func toModelEvent(ev *events.Event) *model.Event {
+	me := &model.Event{
+		ID:        ev.ID,
+		Type:      string(ev.Type),
+		Payload:   string(ev.Payload),
+		Timestamp: ev.Timestamp.Format(time.RFC3339),
+	}
+	if ev.Source != "" {
+		s := ev.Source
+		me.Source = &s
+	}
+	return me
+}

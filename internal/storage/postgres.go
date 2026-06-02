@@ -136,6 +136,19 @@ func (s *PGStore) ListDecisions(ctx context.Context, limit, offset int, eventTyp
 	return out, rows.Err()
 }
 
+func (s *PGStore) GetEventByID(ctx context.Context, id string) (*events.Event, error) {
+	var ev events.Event
+	var typ string
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, type, payload, source, ts FROM events WHERE id = $1`, id,
+	).Scan(&ev.ID, &typ, &ev.Payload, &ev.Source, &ev.Timestamp)
+	if err != nil {
+		return nil, err
+	}
+	ev.Type = events.Type(typ)
+	return &ev, nil
+}
+
 func (s *PGStore) ListEvents(ctx context.Context, limit, offset int) ([]*events.Event, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, type, payload, source, ts FROM events ORDER BY ts DESC LIMIT $1 OFFSET $2`,

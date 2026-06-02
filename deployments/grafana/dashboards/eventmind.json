@@ -1,0 +1,125 @@
+{
+  "title": "EventMind",
+  "uid": "eventmind-main",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Events Processed / sec",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [{
+        "expr": "sum(rate(eventmind_events_processed_total[1m])) by (event_type)",
+        "legendFormat": "{{event_type}}",
+        "datasource": "Prometheus"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Actions Taken / sec",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [{
+        "expr": "sum(rate(eventmind_actions_taken_total[1m])) by (action)",
+        "legendFormat": "{{action}}",
+        "datasource": "Prometheus"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "LLM Request Latency (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(eventmind_llm_request_duration_seconds_bucket[5m])) by (le, provider))",
+          "legendFormat": "p50 {{provider}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(eventmind_llm_request_duration_seconds_bucket[5m])) by (le, provider))",
+          "legendFormat": "p95 {{provider}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(eventmind_llm_request_duration_seconds_bucket[5m])) by (le, provider))",
+          "legendFormat": "p99 {{provider}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 4,
+      "title": "DLQ Events",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [{
+        "expr": "sum(increase(eventmind_dlq_events_total[5m])) by (event_type)",
+        "legendFormat": "{{event_type}}"
+      }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "fixedColor": "red", "mode": "fixed" } } }
+    },
+    {
+      "id": 5,
+      "title": "Total Events Processed",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 16, "w": 6, "h": 4 },
+      "targets": [{
+        "expr": "sum(eventmind_events_processed_total)",
+        "legendFormat": "total"
+      }],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 6,
+      "title": "Success Rate",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 16, "w": 6, "h": 4 },
+      "targets": [{
+        "expr": "sum(eventmind_events_processed_total{status='success'}) / sum(eventmind_events_processed_total) * 100",
+        "legendFormat": "%"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "yellow", "value": 90 },
+              { "color": "green", "value": 99 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Retry Attempts",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 16, "w": 6, "h": 4 },
+      "targets": [{
+        "expr": "sum(eventmind_retry_attempts_total) by (outcome)",
+        "legendFormat": "{{outcome}}"
+      }]
+    },
+    {
+      "id": 8,
+      "title": "Permanent Failures",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 16, "w": 6, "h": 4 },
+      "targets": [{
+        "expr": "sum(eventmind_retry_attempts_total{outcome='permanent_failure'})"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "fixedColor": "dark-red", "mode": "fixed" }
+        }
+      }
+    }
+  ]
+}

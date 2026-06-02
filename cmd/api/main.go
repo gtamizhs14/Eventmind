@@ -10,10 +10,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/handler/transport"
+	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/gtamizhs14/eventmind/api/graphql/generated"
+	gqlresolver "github.com/gtamizhs14/eventmind/api/graphql"
 	"github.com/gtamizhs14/eventmind/api/rest"
 	"github.com/gtamizhs14/eventmind/internal/cache"
 	"github.com/gtamizhs14/eventmind/internal/messaging"
@@ -40,7 +45,7 @@ func main() {
 		log.Fatal().Err(err).Msg("mongo init failed")
 	}
 	defer mdb.Close(ctx)
-	_ = mdb // used by future analytics endpoints
+	_ = mdb
 
 	rdb, err := cache.New(os.Getenv("REDIS_URL"))
 	if err != nil {
@@ -56,15 +61,33 @@ func main() {
 
 	m := metrics.New()
 
-	// gin setup
 	if os.Getenv("ENV") == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	router := gin.New()
 	router.Use(rest.RequestID(), rest.RequestLogger(log), rest.Recovery(log))
 
-	h := rest.NewHandler(db, rdb, producer, m, log)
-	h.RegisterRoutes(router)
+	// REST
+	restHandler := rest.NewHandler(db, rdb, producer, m, log)
+	restHandler.RegisterRoutes(router)
+
+	// GraphQL — requires `make gen` to generate api/graphql/generated/
+	resolver := gqlresolver.NewResolver(db, rdb, producer)
+	gqlSrv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
+		Resolvers: resolver,
+	}))
+	gqlSrv.AddTransport(transport.Websocket{
+		KeepAlivePingInterval: 10 * time.Second,
+	})
+	gqlSrv.AddTransport(transport.POST{})
+	gqlSrv.AddTransport(transport.GET{})
+
+	router.GET("/graphql/playground", func(c *gin.Context) {
+		playground.Handler("EventMind GraphQL", "/graphql")(c.Writer, c.Request)
+	})
+	router.Any("/graphql", func(c *gin.Context) {
+		gqlSrv.ServeHTTP(c.Writer, c.Request)
+	})
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -75,7 +98,6 @@ func main() {
 		metricsPort = "9091"
 	}
 
-	// metrics server runs on its own port so it's not exposed through the API gateway
 	metricsSrv := &http.Server{
 		Addr:    fmt.Sprintf(":%s", metricsPort),
 		Handler: promhttp.Handler(),
@@ -107,13 +129,8 @@ func main() {
 
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutCancel()
-
-	if err := srv.Shutdown(shutCtx); err != nil {
-		log.Error().Err(err).Msg("api server forced shutdown")
-	}
-	if err := metricsSrv.Shutdown(shutCtx); err != nil {
-		log.Error().Err(err).Msg("metrics server forced shutdown")
-	}
+	_ = srv.Shutdown(shutCtx)
+	_ = metricsSrv.Shutdown(shutCtx)
 
 	log.Info().Msg("shutdown complete")
 }

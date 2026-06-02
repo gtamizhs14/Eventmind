@@ -104,6 +104,8 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro
+      - ./grafana/dashboard-provisioning.yml:/etc/grafana/provisioning/dashboards/provisioning.yml:ro
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
     depends_on:
       - prometheus
 
