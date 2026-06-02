@@ -35,6 +35,12 @@ func main() {
 	}
 	defer db.Close()
 
+	mdb, err := storage.NewMongo(ctx, os.Getenv("MONGODB_URI"), os.Getenv("MONGODB_DATABASE"))
+	if err != nil {
+		log.Fatal().Err(err).Msg("mongo init failed")
+	}
+	defer mdb.Close(ctx)
+
 	rdb, err := cache.New(os.Getenv("REDIS_URL"))
 	if err != nil {
 		log.Fatal().Err(err).Msg("redis init failed")
@@ -60,16 +66,12 @@ func main() {
 	}
 	defer consumer.Close()
 
-	maxRetry := envInt("RETRY_MAX_ATTEMPTS", 5)
-	baseMs := envInt("RETRY_BASE_DELAY_MS", 1000)
-
-	dlqWorker, err := messaging.NewDLQWorker(brokers, groupID, dlqTopic, maxRetry, baseMs, log)
+	dlqWorker, err := messaging.NewDLQWorker(brokers, groupID, dlqTopic, envInt("RETRY_MAX_ATTEMPTS", 5), envInt("RETRY_BASE_DELAY_MS", 1000), log)
 	if err != nil {
 		log.Fatal().Err(err).Msg("dlq worker init failed")
 	}
 	defer dlqWorker.Close()
 
-	// when an event exhausts all retries, write a permanently_failed decision record
 	dlqWorker.OnPermanentFailure(func(ctx context.Context, raw []byte) {
 		var ev events.Event
 		if err := json.Unmarshal(raw, &ev); err != nil {
@@ -92,6 +94,11 @@ func main() {
 	})
 
 	handler := func(ctx context.Context, ev *events.Event) error {
+		// raw document to Mongo regardless of processing outcome
+		if err := mdb.SaveEvent(ctx, ev); err != nil {
+			log.Warn().Err(err).Str("event_id", ev.ID).Msg("mongo save failed — non-fatal")
+		}
+
 		seen, err := rdb.Seen(ctx, ev.ID)
 		if err != nil {
 			log.Warn().Err(err).Str("event_id", ev.ID).Msg("idempotency check failed — processing anyway")
@@ -106,6 +113,7 @@ func main() {
 			if saveErr := db.SaveDecision(ctx, d); saveErr != nil {
 				log.Error().Err(saveErr).Str("event_id", ev.ID).Msg("failed to persist decision")
 			}
+
 			status := "success"
 			if !d.Success {
 				status = "failure"
@@ -114,10 +122,12 @@ func main() {
 			if d.Success {
 				m.ActionsTaken.WithLabelValues(string(d.Action)).Inc()
 			}
+
 			log.Info().
 				Str("event_id", ev.ID).
 				Str("type", string(ev.Type)).
 				Str("action", string(d.Action)).
+				Bool("success", d.Success).
 				Int64("duration_ms", d.DurationMs).
 				Int64("llm_ms", d.LLMDurationMs).
 				Msg("event processed")

@@ -25,17 +25,22 @@ func main() {
 		log.Fatal().Err(err).Msg("postgres init failed")
 	}
 	defer db.Close()
-	log.Info().Msg("postgres connected")
+
+	mdb, err := storage.NewMongo(ctx, os.Getenv("MONGODB_URI"), os.Getenv("MONGODB_DATABASE"))
+	if err != nil {
+		log.Fatal().Err(err).Msg("mongo init failed")
+	}
+	defer mdb.Close(ctx)
 
 	rdb, err := cache.New(os.Getenv("REDIS_URL"))
 	if err != nil {
 		log.Fatal().Err(err).Msg("redis init failed")
 	}
 	defer rdb.Close()
-	log.Info().Msg("redis connected")
 
 	// REST + GraphQL server wired in steps 6 and 7
 	_ = db
+	_ = mdb
 	_ = rdb
 
 	log.Info().Str("port", os.Getenv("PORT")).Msg("api starting — server wired in step 6")
