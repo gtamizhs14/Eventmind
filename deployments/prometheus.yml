@@ -6,14 +6,14 @@ scrape_configs:
   - job_name: "eventmind-api"
     static_configs:
       - targets: ["host.docker.internal:9091"]
-    labels:
-      service: api
+        labels:
+          service: api
 
   - job_name: "eventmind-worker"
     static_configs:
       - targets: ["host.docker.internal:9092"]
-    labels:
-      service: worker
+        labels:
+          service: worker
 
   - job_name: "prometheus"
     static_configs:
