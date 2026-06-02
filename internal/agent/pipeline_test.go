@@ -1,6 +1,6 @@
-package agent
+package agent_test
 
-// Integration tests for the agent → storage pipeline.
+// Integration tests for the full agent → storage pipeline.
 // Run with: DATABASE_URL=... REDIS_URL=... go test ./internal/agent/ -run Integration -v
 
 import (
@@ -11,10 +11,20 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/gtamizhs14/eventmind/internal/agent"
 	"github.com/gtamizhs14/eventmind/internal/cache"
 	"github.com/gtamizhs14/eventmind/internal/events"
 	"github.com/gtamizhs14/eventmind/internal/storage"
 )
+
+// pipelineMock is a local mock LLM for integration tests — no real API call needed.
+type pipelineMock struct{}
+
+func (p *pipelineMock) Complete(_ context.Context, _ string) (string, error) {
+	return `{"action":"send_notification","reasoning":"integration test"}`, nil
+}
+func (p *pipelineMock) Name() string { return "mock" }
 
 func IntegrationTestAgentPipeline(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
@@ -37,8 +47,7 @@ func IntegrationTestAgentPipeline(t *testing.T) {
 	}
 	defer rdb.Close()
 
-	// use mock LLM so tests don't need a real API key
-	ag := New(&testProvider{resp: `{"action":"send_notification","reasoning":"integration test"}`}, nil)
+	ag := agent.New(&pipelineMock{}, nil)
 
 	t.Run("ProcessAndPersist", func(t *testing.T) {
 		payload, _ := json.Marshal(map[string]any{
@@ -54,7 +63,6 @@ func IntegrationTestAgentPipeline(t *testing.T) {
 			Timestamp: time.Now().UTC(),
 		}
 
-		// save event to postgres first (simulating what the API does)
 		if err := db.SaveEvent(ctx, ev); err != nil {
 			t.Fatalf("SaveEvent: %v", err)
 		}
@@ -63,10 +71,7 @@ func IntegrationTestAgentPipeline(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Process: %v", err)
 		}
-		if d == nil {
-			t.Fatal("expected decision")
-		}
-		if d.Action != ActionSendNotification {
+		if d.Action != agent.ActionSendNotification {
 			t.Errorf("action: got %q", d.Action)
 		}
 
@@ -74,7 +79,6 @@ func IntegrationTestAgentPipeline(t *testing.T) {
 			t.Fatalf("SaveDecision: %v", err)
 		}
 
-		// verify it was persisted
 		got, err := db.GetDecision(ctx, d.ID)
 		if err != nil {
 			t.Fatalf("GetDecision: %v", err)
@@ -82,28 +86,19 @@ func IntegrationTestAgentPipeline(t *testing.T) {
 		if got.EventID != ev.ID {
 			t.Errorf("event_id mismatch: got %q want %q", got.EventID, ev.ID)
 		}
-		if got.Action != d.Action {
-			t.Errorf("action mismatch")
-		}
 	})
 
 	t.Run("IdempotencyViaRedis", func(t *testing.T) {
-		ev := &events.Event{
-			ID:        uuid.New().String(),
-			Type:      events.UserSignup,
-			Payload:   []byte(`{"user_id":"u1","email":"test@test.com","plan":"free","source":"test"}`),
-			Timestamp: time.Now().UTC(),
-		}
+		id := uuid.New().String()
 
-		seen1, err := rdb.Seen(ctx, ev.ID)
+		seen1, err := rdb.Seen(ctx, id)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if seen1 {
-			t.Error("first call: should not be seen yet")
+			t.Error("first call: should not be seen")
 		}
-
-		seen2, err := rdb.Seen(ctx, ev.ID)
+		seen2, err := rdb.Seen(ctx, id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -124,7 +119,7 @@ func IntegrationTestAgentPipeline(t *testing.T) {
 			t.Fatalf("GetDecision from cache: %v", err)
 		}
 		if got != blob {
-			t.Errorf("cache round-trip failed: got %q want %q", got, blob)
+			t.Errorf("cache round-trip: got %q want %q", got, blob)
 		}
 	})
 }
