@@ -258,7 +258,7 @@ sed -i "s|<ECR_API_URL>|$(terraform output -raw ecr_api_url)|g"    ../../deploym
 sed -i "s|<ECR_WORKER_URL>|$(terraform output -raw ecr_worker_url)|g" ../../deployments/k8s/worker-deployment.yaml
 ```
 
-GitHub Actions builds images, pushes to ECR, and rolls out to EKS on every push to `main`.
+The GitHub Actions pipeline (`.github/workflows/ci.yml`) is written to build images, push to ECR, and roll out to EKS on every push to `main` — it requires `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` set as GitHub Secrets and an existing S3 bucket (`eventmind-tfstate`) for Terraform state. The pipeline has not been run against a live AWS account — infrastructure is IaC-ready, not provisioned.
 
 ## Database schema
 
