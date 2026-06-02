@@ -86,7 +86,6 @@ func (a *Agent) Process(ctx context.Context, ev *events.Event) (*Decision, error
 		LLMPrompt:     prompt,
 		LLMResponse:   resp,
 		Success:       result.Success,
-		Error:         result.Details,
 		DurationMs:    time.Since(start).Milliseconds(),
 		LLMDurationMs: llmMs,
 		Status:        "completed",

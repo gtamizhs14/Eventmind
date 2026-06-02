@@ -79,6 +79,64 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    image: eventmind-api:latest
+    ports:
+      - "8080:8080"
+      - "9091:9091"
+    environment:
+      PORT: "8080"
+      ENV: development
+      LOG_LEVEL: debug
+      METRICS_PORT: "9091"
+      LLM_PROVIDER: groq
+      LLM_API_KEY: ${LLM_API_KEY}
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_GROUP_ID: eventmind-consumer
+      KAFKA_TOPIC_EVENTS: events
+      KAFKA_TOPIC_DLQ: events.dlq
+      KAFKA_USE_TLS: "false"
+      DATABASE_URL: postgres://eventmind:eventmind@postgres:5432/eventmind?sslmode=disable
+      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_DATABASE: eventmind
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+
+  worker:
+    image: eventmind-worker:latest
+    environment:
+      LOG_LEVEL: debug
+      LLM_PROVIDER: groq
+      LLM_API_KEY: ${LLM_API_KEY}
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_GROUP_ID: eventmind-consumer
+      KAFKA_TOPIC_EVENTS: events
+      KAFKA_TOPIC_DLQ: events.dlq
+      KAFKA_USE_TLS: "false"
+      DATABASE_URL: postgres://eventmind:eventmind@postgres:5432/eventmind?sslmode=disable
+      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_DATABASE: eventmind
+      REDIS_URL: redis://redis:6379
+      RETRY_MAX_ATTEMPTS: "5"
+      RETRY_BASE_DELAY_MS: "1000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+
   prometheus:
     image: prom/prometheus:v2.51.0
     ports:
